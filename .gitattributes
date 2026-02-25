@@ -1,2 +1,75 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# --- Source Files ---
+*.py text eol=lf diff=python
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# --- Configuration Files ---
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# --- Documentation ---
+*.rst text eol=lf
+LICENSE text eol=lf
+README text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# --- Assets (Binary) ---
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.bmp binary
+*.tiff binary
+
+# Audio
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary
+*.aac binary
+*.m4a binary
+
+# Video
+*.mp4 binary
+*.avi binary
+*.mov binary
+*.mkv binary
+
+# Fonts
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.rar binary
+
+# Executables
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.pyc binary
+
+# --- Python Specific ---
+# Jupyter notebooks - keep JSON diff for better merge
+*.ipynb text eol=lf diff=jupyternotebook merge=jupyternotebook
