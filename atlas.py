@@ -89,7 +89,7 @@ class FileManager:
             base_path = sys._MEIPASS
         except AttributeError:
             # Development mode: project root
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            base_path = os.path.dirname(os.path.abspath(__file__))
 
         return os.path.join(base_path, os.path.normpath(relative_path))
 
@@ -146,7 +146,7 @@ class FileManager:
         else:
             # Development mode: use local data folder
             base_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                os.path.dirname(os.path.abspath(__file__)),
                 self.dev_data_folder
             )
 
