@@ -1,0 +1,2 @@
+# Atlas
+File manager module
