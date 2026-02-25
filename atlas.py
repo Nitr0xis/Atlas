@@ -6,8 +6,9 @@ A standalone, platform-independent file management system that works
 seamlessly in both development and PyInstaller executable environments.
 
 Author: Nils DONTOT
+Github Repository: https://github.com/Nitr0xis/Atlas
 Version: 1.0.0
-License: CC BY-NC-SA 4.0
+License: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0)
 
 Usage:
     from file_manager import FileManager
