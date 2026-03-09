@@ -7,14 +7,22 @@ seamlessly in both development and PyInstaller executable environments.
 
 Author: Nils DONTOT
 Github Repository: https://github.com/Nitr0xis/Atlas
-Version: 1.0.0
+Version: 1.1.0
 License: CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0)
 
-Usage:
-    from file_manager import FileManager
+Changelog v1.1.0:
+    - Added project_root parameter for flexible root directory configuration
+    - Auto-detects project root by default (goes up from module location)
+    - Allows manual override for custom project structures
 
-    # Initialize with project name
+Usage:
+    from atlas import FileManager
+
+    # Auto-detect project root (default)
     fm = FileManager(project_name="MyProject")
+
+    # Manual project root (custom structure)
+    fm = FileManager(project_name="MyProject", project_root="/custom/path")
 
     # Use methods
     fm.create_folder('screenshots')
@@ -25,8 +33,6 @@ Usage:
 import os
 import sys
 import shutil
-import json
-from pathlib import Path
 from typing import Optional, Union, List
 
 
@@ -39,12 +45,14 @@ class FileManager:
 
     Attributes:
         project_name: Name of the project (used for Documents folder)
+        project_root: Root directory of the project (auto-detected or manual)
         dev_data_folder: Folder name for development mode (default: 'user_data')
         use_documents: Whether to use Documents folder in exe mode (default: True)
     """
 
     def __init__(self,
                  project_name: str = "MyProject",
+                 project_root: Optional[str] = None,
                  dev_data_folder: str = "user_data",
                  use_documents: bool = True):
         """
@@ -52,13 +60,28 @@ class FileManager:
 
         Args:
             project_name: Name of your project (used for Documents/ProjectName/)
+            project_root: Root directory of project (auto-detected if None)
+                         Auto-detection: goes up from atlas.py location
+                         Manual: provide absolute path to project root
             dev_data_folder: Folder name for dev mode (default: 'user_data')
             use_documents: If True, uses Documents folder in exe mode
                           If False, uses executable's directory
 
         Examples:
-            > fm = FileManager(project_name="GravityEngine")
-            > fm = FileManager(project_name="MyGame", dev_data_folder="data")
+            >>> # Auto-detect (atlas.py in src/, goes to parent)
+            >>> fm = FileManager(project_name="GravityEngine")
+            
+            >>> # Manual root (custom structure)
+            >>> fm = FileManager(
+            ...     project_name="MyGame",
+            ...     project_root="/custom/project/path"
+            ... )
+            
+            >>> # Custom data folder
+            >>> fm = FileManager(
+            ...     project_name="MyGame",
+            ...     dev_data_folder="data"
+            ... )
         """
         self.project_name = project_name
         self.dev_data_folder = dev_data_folder
@@ -66,6 +89,15 @@ class FileManager:
 
         # Detect execution mode
         self.is_frozen = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+
+        # Set project root
+        if project_root is not None:
+            # Manual override
+            self.project_root = os.path.dirname(os.path.abspath(project_root))
+        else:
+            # Auto-detect: go up one level from atlas.py location
+            # __file__ = C:/Project/src/atlas.py
+            self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def resource_path(self, relative_path: str) -> str:
         """
@@ -81,7 +113,7 @@ class FileManager:
             Absolute path to the resource
 
         Examples:
-            > fm.resource_path('assets/font.ttf')
+            >>> fm.resource_path('assets/font.ttf')
             'C:/Projects/MyProject/assets/font.ttf'  # Dev
             'C:/Users/.../Temp/_MEI123/assets/font.ttf'  # PyInstaller
         """
@@ -89,8 +121,8 @@ class FileManager:
             # PyInstaller mode: _MEIPASS is the extracted temp folder
             base_path = sys._MEIPASS
         except AttributeError:
-            # Development mode: project root
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            # Development mode: use configured project root
+            base_path = self.project_root
 
         return os.path.join(base_path, os.path.normpath(relative_path))
 
@@ -99,7 +131,7 @@ class FileManager:
         Get path for user data that persists between sessions.
 
         Returns appropriate directory based on execution mode and configuration:
-        - Development: ./user_data/ (or custom dev_data_folder)
+        - Development: <project_root>/<dev_data_folder>/
         - PyInstaller + use_documents: Documents/ProjectName/
         - PyInstaller + not use_documents: ./ProjectName/
 
@@ -110,12 +142,12 @@ class FileManager:
             Absolute path to user data location
 
         Examples:
-            > fm.user_data_path()
-            './user_data/'  # Dev
+            >>> fm.user_data_path()
+            'C:/Project/user_data/'  # Dev
             'C:/Users/Account/Documents/MyProject/'  # Exe
 
-            > fm.user_data_path('screenshots/image.png')
-            './user_data/screenshots/image.png'  # Dev
+            >>> fm.user_data_path('screenshots/image.png')
+            'C:/Project/user_data/screenshots/image.png'  # Dev
         """
         if self.is_frozen:
             # PyInstaller mode
@@ -145,11 +177,8 @@ class FileManager:
                     self.project_name
                 )
         else:
-            # Development mode: use local data folder
-            base_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                self.dev_data_folder
-            )
+            # Development mode: use configured project root + data folder
+            base_path = os.path.join(self.project_root, self.dev_data_folder)
 
         if relative_path:
             return os.path.join(base_path, os.path.normpath(relative_path))
@@ -166,6 +195,7 @@ class FileManager:
         Args:
             path: Relative or absolute path to folder
             use_user_data: If True, creates in user_data location
+                          If False, creates at absolute path or relative to project root
             parents: If True, creates parent directories as needed
             exist_ok: If True, doesn't raise error if folder exists
 
@@ -173,14 +203,27 @@ class FileManager:
             Absolute path to created folder, or None on error
 
         Examples:
-            > fm.create_folder('screenshots')
-            './user_data/screenshots/'
+            >>> # Create in user_data
+            >>> fm.create_folder('screenshots')
+            'C:/Project/user_data/screenshots/'
 
-            > fm.create_folder('C:/temp/test', use_user_data=False)
+            >>> # Create relative to project root
+            >>> fm.create_folder('logs', use_user_data=False)
+            'C:/Project/logs/'
+
+            >>> # Create at absolute path
+            >>> fm.create_folder('C:/temp/test', use_user_data=False)
             'C:/temp/test/'
         """
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                # If absolute path, use as-is; if relative, join with project root
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             if parents:
                 os.makedirs(full_path, exist_ok=exist_ok)
@@ -208,6 +251,7 @@ class FileManager:
             path: Relative or absolute path to file
             content: Content to write (string or bytes)
             use_user_data: If True, creates in user_data location
+                          If False, creates at absolute path or relative to project root
             encoding: Text encoding (default: 'utf-8')
             create_parents: If True, creates parent directories
 
@@ -215,14 +259,22 @@ class FileManager:
             Absolute path to created file, or None on error
 
         Examples:
-            > fm.create_file('config.txt', 'setting=value')
-            './user_data/config.txt'
+            >>> # Create in user_data
+            >>> fm.create_file('config.txt', 'setting=value')
+            'C:/Project/user_data/config.txt'
 
-            > fm.create_file('data/save.json', '{"score": 100}')
-            './user_data/data/save.json'
+            >>> # Create relative to project root
+            >>> fm.create_file('README.md', '# Project', use_user_data=False)
+            'C:/Project/README.md'
         """
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             # Create parent directories if needed
             if create_parents:
@@ -251,37 +303,21 @@ class FileManager:
                    use_user_data: bool = True,
                    encoding: str = 'utf-8',
                    create_parents: bool = True) -> Optional[str]:
-        """
-        Write content to a file.
-
-        Args:
-            path: Relative or absolute path to file
-            content: Content to write (string or bytes)
-            mode: Write mode - 'w' (overwrite), 'a' (append), 'wb' (binary)
-            use_user_data: If True, uses user_data location
-            encoding: Text encoding (default: 'utf-8')
-            create_parents: If True, creates parent directories
-
-        Returns:
-            Absolute path to file, or None on error
-
-        Examples:
-            > fm.write_file('log.txt', 'New entry\\n', mode='a')
-            './user_data/log.txt'
-
-            > fm.write_file('config.json', json.dumps(data))
-            './user_data/config.json'
-        """
+        """Write content to a file."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
-            # Create parent directories if needed
             if create_parents:
                 parent_dir = os.path.dirname(full_path)
                 if parent_dir:
                     os.makedirs(parent_dir, exist_ok=True)
 
-            # Write content
             if 'b' in mode:
                 with open(full_path, mode) as f:
                     f.write(content)
@@ -301,28 +337,15 @@ class FileManager:
                   use_user_data: bool = True,
                   encoding: str = 'utf-8',
                   default: any = None) -> Union[str, bytes, any]:
-        """
-        Read content from a file.
-
-        Args:
-            path: Relative or absolute path to file
-            mode: Read mode - 'r' (text), 'rb' (binary)
-            use_user_data: If True, reads from user_data location
-            encoding: Text encoding (default: 'utf-8')
-            default: Value to return if file doesn't exist or error occurs
-
-        Returns:
-            File content (string or bytes), or default value on error
-
-        Examples:
-            > content = fm.read_file('config.txt')
-            'setting=value'
-
-            > data = fm.read_file('save.json', default='{}')
-            '{}'  # If file doesn't exist
-        """
+        """Read content from a file."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             if not os.path.exists(full_path):
                 return default
@@ -342,29 +365,18 @@ class FileManager:
                     path: str,
                     use_user_data: bool = True,
                     missing_ok: bool = True) -> bool:
-        """
-        Delete a file.
-
-        Args:
-            path: Relative or absolute path to file
-            use_user_data: If True, deletes from user_data location
-            missing_ok: If True, doesn't raise error if file doesn't exist
-
-        Returns:
-            True if successful, False otherwise
-
-        Examples:
-            > fm.remove_file('old_save.json')
-            True
-        """
+        """Delete a file."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             if not os.path.exists(full_path):
-                if missing_ok:
-                    return True
-                print(f"⚠ File not found: '{path}'")
-                return False
+                return missing_ok
 
             if not os.path.isfile(full_path):
                 print(f"✗ Not a file: '{path}'")
@@ -382,33 +394,18 @@ class FileManager:
                       use_user_data: bool = True,
                       recursive: bool = False,
                       missing_ok: bool = True) -> bool:
-        """
-        Delete a folder.
-
-        Args:
-            path: Relative or absolute path to folder
-            use_user_data: If True, deletes from user_data location
-            recursive: If True, deletes folder and all contents
-            missing_ok: If True, doesn't raise error if folder doesn't exist
-
-        Returns:
-            True if successful, False otherwise
-
-        Examples:
-            > fm.remove_folder('temp', recursive=True)
-            True  # Deletes folder and contents
-
-            > fm.remove_folder('empty_folder')
-            True  # Deletes only if empty
-        """
+        """Delete a folder."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             if not os.path.exists(full_path):
-                if missing_ok:
-                    return True
-                print(f"⚠ Folder not found: '{path}'")
-                return False
+                return missing_ok
 
             if not os.path.isdir(full_path):
                 print(f"✗ Not a folder: '{path}'")
@@ -426,39 +423,25 @@ class FileManager:
             return False
 
     def file_exists(self, path: str, use_user_data: bool = True) -> bool:
-        """
-        Check if a file exists.
-
-        Args:
-            path: Relative or absolute path to file
-            use_user_data: If True, checks in user_data location
-
-        Returns:
-            True if file exists, False otherwise
-
-        Examples:
-            > if fm.file_exists('config.json'):
-            ...     config = fm.read_file('config.json')
-        """
-        full_path = self.user_data_path(path) if use_user_data else path
+        """Check if a file exists."""
+        if use_user_data:
+            full_path = self.user_data_path(path)
+        else:
+            if os.path.isabs(path):
+                full_path = path
+            else:
+                full_path = os.path.join(self.project_root, path)
         return os.path.isfile(full_path)
 
     def folder_exists(self, path: str, use_user_data: bool = True) -> bool:
-        """
-        Check if a folder exists.
-
-        Args:
-            path: Relative or absolute path to folder
-            use_user_data: If True, checks in user_data location
-
-        Returns:
-            True if folder exists, False otherwise
-
-        Examples:
-            > if not fm.folder_exists('screenshots'):
-            ...     fm.create_folder('screenshots')
-        """
-        full_path = self.user_data_path(path) if use_user_data else path
+        """Check if a folder exists."""
+        if use_user_data:
+            full_path = self.user_data_path(path)
+        else:
+            if os.path.isabs(path):
+                full_path = path
+            else:
+                full_path = os.path.join(self.project_root, path)
         return os.path.isdir(full_path)
 
     def list_files(self,
@@ -467,49 +450,27 @@ class FileManager:
                    extension: Optional[str] = None,
                    include_hidden: bool = False,
                    absolute_paths: bool = False) -> List[str]:
-        """
-        List all files in a folder.
-
-        Args:
-            path: Relative or absolute path to folder (empty = root)
-            use_user_data: If True, lists from user_data location
-            extension: Optional filter by extension (e.g., '.json')
-            include_hidden: If True, includes hidden files (starting with .)
-            absolute_paths: If True, returns absolute paths instead of names
-
-        Returns:
-            List of filenames (or paths), or empty list on error
-
-        Examples:
-            > fm.list_files('screenshots')
-            ['screenshot_001.png', 'screenshot_002.png']
-
-            > fm.list_files('saves', extension='.json')
-            ['save_1.json', 'save_2.json']
-
-            > fm.list_files('screenshots', absolute_paths=True)
-            ['C:/path/screenshots/screenshot_001.png', ...]
-        """
+        """List all files in a folder."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path) if path else self.project_root
 
             if not os.path.exists(full_path):
                 return []
 
             files = []
             for item in os.listdir(full_path):
-                # Skip hidden files if not requested
                 if not include_hidden and item.startswith('.'):
                     continue
-
                 item_path = os.path.join(full_path, item)
                 if os.path.isfile(item_path):
-                    # Filter by extension if specified
                     if extension is None or item.endswith(extension):
-                        if absolute_paths:
-                            files.append(item_path)
-                        else:
-                            files.append(item)
+                        files.append(item_path if absolute_paths else item)
 
             return sorted(files)
 
@@ -522,43 +483,26 @@ class FileManager:
                      use_user_data: bool = True,
                      include_hidden: bool = False,
                      absolute_paths: bool = False) -> List[str]:
-        """
-        List all folders in a directory.
-
-        Args:
-            path: Relative or absolute path to folder (empty = root)
-            use_user_data: If True, lists from user_data location
-            include_hidden: If True, includes hidden folders (starting with .)
-            absolute_paths: If True, returns absolute paths instead of names
-
-        Returns:
-            List of folder names (or paths), or empty list on error
-
-        Examples:
-            > fm.list_folders()
-            ['screenshots', 'saves', 'logs']
-
-            > fm.list_folders(absolute_paths=True)
-            ['C:/path/screenshots', 'C:/path/saves', 'C:/path/logs']
-        """
+        """List all folders in a directory."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path) if path else self.project_root
 
             if not os.path.exists(full_path):
                 return []
 
             folders = []
             for item in os.listdir(full_path):
-                # Skip hidden folders if not requested
                 if not include_hidden and item.startswith('.'):
                     continue
-
                 item_path = os.path.join(full_path, item)
                 if os.path.isdir(item_path):
-                    if absolute_paths:
-                        folders.append(item_path)
-                    else:
-                        folders.append(item)
+                    folders.append(item_path if absolute_paths else item)
 
             return sorted(folders)
 
@@ -567,22 +511,15 @@ class FileManager:
             return []
 
     def get_file_size(self, path: str, use_user_data: bool = True) -> Optional[int]:
-        """
-        Get file size in bytes.
-
-        Args:
-            path: Relative or absolute path to file
-            use_user_data: If True, checks in user_data location
-
-        Returns:
-            File size in bytes, or None if file doesn't exist
-
-        Examples:
-            > size = fm.get_file_size('config.json')
-            1024  # bytes
-        """
+        """Get file size in bytes."""
         try:
-            full_path = self.user_data_path(path) if use_user_data else path
+            if use_user_data:
+                full_path = self.user_data_path(path)
+            else:
+                if os.path.isabs(path):
+                    full_path = path
+                else:
+                    full_path = os.path.join(self.project_root, path)
 
             if not os.path.exists(full_path):
                 return None
@@ -598,27 +535,18 @@ class FileManager:
                   dst: str,
                   use_user_data_src: bool = True,
                   use_user_data_dst: bool = True) -> bool:
-        """
-        Copy a file from source to destination.
-
-        Args:
-            src: Source file path
-            dst: Destination file path
-            use_user_data_src: If True, src is relative to user_data
-            use_user_data_dst: If True, dst is relative to user_data
-
-        Returns:
-            True if successful, False otherwise
-
-        Examples:
-            > fm.copy_file('config.json', 'config_backup.json')
-            True
-        """
+        """Copy a file from source to destination."""
         try:
-            src_path = self.user_data_path(src) if use_user_data_src else src
-            dst_path = self.user_data_path(dst) if use_user_data_dst else dst
+            if use_user_data_src:
+                src_path = self.user_data_path(src)
+            else:
+                src_path = src if os.path.isabs(src) else os.path.join(self.project_root, src)
 
-            # Create destination parent directories
+            if use_user_data_dst:
+                dst_path = self.user_data_path(dst)
+            else:
+                dst_path = dst if os.path.isabs(dst) else os.path.join(self.project_root, dst)
+
             dst_parent = os.path.dirname(dst_path)
             if dst_parent:
                 os.makedirs(dst_parent, exist_ok=True)
@@ -635,27 +563,18 @@ class FileManager:
                   dst: str,
                   use_user_data_src: bool = True,
                   use_user_data_dst: bool = True) -> bool:
-        """
-        Move/rename a file.
-
-        Args:
-            src: Source file path
-            dst: Destination file path
-            use_user_data_src: If True, src is relative to user_data
-            use_user_data_dst: If True, dst is relative to user_data
-
-        Returns:
-            True if successful, False otherwise
-
-        Examples:
-            > fm.move_file('old_name.txt', 'new_name.txt')
-            True
-        """
+        """Move/rename a file."""
         try:
-            src_path = self.user_data_path(src) if use_user_data_src else src
-            dst_path = self.user_data_path(dst) if use_user_data_dst else dst
+            if use_user_data_src:
+                src_path = self.user_data_path(src)
+            else:
+                src_path = src if os.path.isabs(src) else os.path.join(self.project_root, src)
 
-            # Create destination parent directories
+            if use_user_data_dst:
+                dst_path = self.user_data_path(dst)
+            else:
+                dst_path = dst if os.path.isabs(dst) else os.path.join(self.project_root, dst)
+
             dst_parent = os.path.dirname(dst_path)
             if dst_parent:
                 os.makedirs(dst_parent, exist_ok=True)
